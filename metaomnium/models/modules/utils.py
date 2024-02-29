@@ -350,6 +350,10 @@ def put_on_device(dev, tensors):
     return tensors
 
 
+def get_flat_params(model):
+    return torch.cat([p.view(-1) for p in model.parameters()], 0)
+
+
 @contextlib.contextmanager
 def empty_context():
     yield None

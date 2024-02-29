@@ -31,6 +31,7 @@ from metaomnium.dataloaders.data_loader_cross_problem_fsl import (
     process_labels,
     get_k_keypoints,
 )
+from metaomnium.models.metalstm import MetaLSTM
 from metaomnium.models.finetuning import FineTuning
 from metaomnium.models.proto_finetuning import ProtoFineTuning
 from metaomnium.models.fsl_resnet import ResNet
@@ -51,6 +52,7 @@ from utils.configs import (
     PROTO_CONF,
     DDRR_CONF,
     TFS_CONF,
+    METALSTM_CONF,
 )
 from utils.utils import *
 
@@ -113,6 +115,7 @@ def parse_arguments() -> argparse.Namespace:
             "protonet",
             "matchingnet",
             "ddrr",
+            "metalstm",
         ],
         required=True,
         help="which model to use",
@@ -494,6 +497,7 @@ class CrossTaskFewShotLearningExperiment:
             "metacurvature": (MetaCurvature, deepcopy(METACURVATURE_CONF)),
             "protonet": (PrototypicalNetwork, deepcopy(PROTO_CONF)),
             "ddrr": (DDRR, deepcopy(DDRR_CONF)),
+            "metalstm": (MetaLSTM, deepcopy(METALSTM_CONF)),
         }
 
         # Get model constructor and config for the specified algorithm
@@ -527,6 +531,7 @@ class CrossTaskFewShotLearningExperiment:
                 self.args.model == "maml"
                 or self.args.model == "protomaml"
                 or self.args.model == "metacurvature"
+                or self.args.model == "metalstm"
             ):
                 self.conf["grad_clip"] = 5
             else:
@@ -1187,7 +1192,7 @@ class CrossTaskFewShotLearningExperiment:
                         np.median(test_scores),
                     )
                     ts_lb, _ = st.t.interval(
-                        alpha=0.95,
+                        confidence=0.95,
                         df=len(test_scores) - 1,
                         loc=np.mean(test_scores),
                         scale=st.sem(test_scores),
@@ -1202,7 +1207,7 @@ class CrossTaskFewShotLearningExperiment:
                         np.median(test_losses),
                     )
                     tl_lb, _ = st.t.interval(
-                        alpha=0.95,
+                        confidence=0.95,
                         df=len(test_losses) - 1,
                         loc=np.mean(test_losses),
                         scale=st.sem(test_losses),

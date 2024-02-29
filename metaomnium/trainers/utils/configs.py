@@ -99,3 +99,13 @@ DDRR_CONF = {
     "init_adj_scale": 5.0,
     "adj_base": 1
 }
+
+# MetaLSTM
+METALSTM_CONF = {
+    "opt_fn": "adam",
+    "T": 5, 
+    "lr": 0.001,
+    "momentum": 0.9,
+    "meta_lr": 0.01,
+    "meta_batch_size": 1
+}

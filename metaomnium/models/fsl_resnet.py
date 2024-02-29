@@ -596,3 +596,8 @@ class ResNet(nn.Module):
         del state_dict["model.regression_mpii_out.bias"]
 
         self.load_state_dict(state_dict, strict=False)
+
+    def reset_batch_stats(self):
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.reset_running_stats()

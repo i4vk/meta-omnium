@@ -12,3 +12,6 @@
 *.tar.gz
 *.ipynb
 *.out
+data/*
+summaries/*
+.vscode/*
