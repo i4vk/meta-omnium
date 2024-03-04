@@ -306,6 +306,7 @@ def get_loss_and_grads(
     loss_net=None,
     loss_params=None,
     task_type=None,
+    allow_unused_grad=False,
 ):
     model.zero_grad()
     if weights is None:
@@ -330,7 +331,8 @@ def get_loss_and_grads(
         return loss, None
 
     grads = torch.autograd.grad(
-        loss, weights, create_graph=create_graph, retain_graph=retain_graph
+        loss, weights, create_graph=create_graph, retain_graph=retain_graph, 
+        allow_unused=allow_unused_grad, materialize_grads=allow_unused_grad
     )
 
     if flat:

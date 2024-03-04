@@ -15,3 +15,5 @@
 data/*
 summaries/*
 .vscode/*
+output/*
+slurm*.sh

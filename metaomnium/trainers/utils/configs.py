@@ -103,7 +103,7 @@ DDRR_CONF = {
 # MetaLSTM
 METALSTM_CONF = {
     "opt_fn": "adam",
-    "T": 5, 
+    "T": 1, 
     "lr": 0.001,
     "momentum": 0.9,
     "meta_lr": 0.01,

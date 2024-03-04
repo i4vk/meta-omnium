@@ -1,6 +1,6 @@
 #!/bin/sh
 
-META_OMNIUM_DIR=/disk/meta-omnium
+META_OMNIUM_DIR=/mnt/homeGPU/igarzon/Meta-Learning/meta-omnium
 
 # These are our primary 1-to-5 shot experiments. To run e.g. 5-shot experiments use `--k_shot_eval 5` instead of `--max_shots_eval 5`
 
@@ -17,7 +17,7 @@ ARGS=(
 "--experiment_name tfs_cls --best_hp_file_name tfs_cls_hpo --model tfs --n_way_eval 5 --max_shots_eval 5 --train_datasets BCT_Mini_Trn,BRD_Mini_Trn,CRS_Mini_Trn --val_id_datasets BCT_Mini_Val,BRD_Mini_Val,CRS_Mini_Val --val_od_datasets FLW_Mini,MD_MIX_Mini,PLK_Mini --test_id_datasets BCT_Mini_Test,BRD_Mini_Test,CRS_Mini_Test --test_od_datasets PLT_VIL_Mini,RESISC_Mini,SPT_Mini,TEX_Mini --T 20 --T_val 20 --T_test 20 --runs 1 --train_iters 30000 --eval_iters 600 --root_dir ${META_OMNIUM_DIR}"
 )
 
-for ARG in ${ARGS[@]}
+for ARG in "${ARGS[@]}"
 do
 python metaomnium/trainers/train_cross_task_fsl.py ${ARG}
 done
@@ -35,7 +35,7 @@ ARGS=(
 "--experiment_name tfs_seg --best_hp_file_name tfs_seg_hpo --model tfs --n_way_eval 5 --max_shots_eval 5 --train_datasets FSS_Trn --val_id_datasets FSS_Val --val_od_datasets Vizwiz --test_id_datasets FSS_Test --test_od_datasets PASCAL,PH2 --T 20 --T_val 20 --T_test 20 --runs 1 --train_iters 30000 --eval_iters 600 --root_dir ${META_OMNIUM_DIR}"
 )
 
-for ARG in ${ARGS[@]}
+for ARG in "${ARGS[@]}"
 do
 python metaomnium/trainers/train_cross_task_fsl.py ${ARG}
 done
@@ -53,7 +53,7 @@ ARGS=(
 "--experiment_name tfs_pose --best_hp_file_name tfs_pose_hpo --model tfs --n_way_eval 5 --max_shots_eval 5 --train_datasets Animal_Pose_Trn --val_id_datasets Animal_Pose_Val --val_od_datasets Synthetic_Animal_Pose --test_id_datasets Animal_Pose_Test --test_od_datasets MPII --T 20 --T_val 20 --T_test 20 --runs 1 --train_iters 30000 --eval_iters 600 --root_dir ${META_OMNIUM_DIR}"
 )
 
-for ARG in ${ARGS[@]}
+for ARG in "${ARGS[@]}"
 do
 python metaomnium/trainers/train_cross_task_fsl.py ${ARG}
 done
@@ -71,7 +71,7 @@ ARGS=(
 "--experiment_name tfs_multi_task --best_hp_file_name tfs_multi_hpo --model tfs --n_way_eval 5 --max_shots_eval 5 --train_datasets FSS_Trn,BCT_Mini_Trn,BRD_Mini_Trn,CRS_Mini_Trn,Animal_Pose_Trn --val_id_datasets FSS_Val,BCT_Mini_Val,BRD_Mini_Val,CRS_Mini_Val,Animal_Pose_Val --val_od_datasets FLW_Mini,MD_MIX_Mini,PLK_Mini,Vizwiz,Synthetic_Animal_Pose --test_id_datasets FSS_Test,BCT_Mini_Test,BRD_Mini_Test,CRS_Mini_Test,Animal_Pose_Test --test_od_datasets PLT_VIL_Mini,RESISC_Mini,SPT_Mini,TEX_Mini,PASCAL,PH2,MPII --T 20 --T_val 20 --T_test 20 --runs 1 --train_iters 30000 --eval_iters 600 --root_dir ${META_OMNIUM_DIR}"
 )
 
-for ARG in ${ARGS[@]}
+for ARG in "${ARGS[@]}"
 do
 python metaomnium/trainers/train_cross_task_fsl.py ${ARG}
 done
@@ -89,7 +89,7 @@ ARGS=(
 "--experiment_name tfs_regr --model_path models/tfs_multi_task/best-model.pkl --best_hp_file_name tfs_multi_hpo --model tfs --n_way_eval 5 --max_shots_eval 5 --train_datasets FSS_Trn,BCT_Mini_Trn,BRD_Mini_Trn,CRS_Mini_Trn,Animal_Pose_Trn --test_od_datasets ShapeNet2D_Test,Distractor_Test,ShapeNet1D_Test,Pascal1D_Test --T 20 --T_val 20 --T_test 20 --runs 1 --eval_iters 600 --root_dir ${META_OMNIUM_DIR}"
 )
 
-for ARG in ${ARGS[@]}
+for ARG in "${ARGS[@]}"
 do
-python metaomnium/trainers/eval`_cross_task_fsl.py ${ARG}
+python metaomnium/trainers/eval_cross_task_fsl.py ${ARG}
 done

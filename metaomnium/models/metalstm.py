@@ -20,19 +20,14 @@ class MetaLSTM(Learner):
             self.dev)
         self.val_learner = self.baselearner_fn(**self.baselearner_args).to(
             self.dev)
-        self.initialization = [p.clone().detach().to(self.dev) for p in
-                               self.learner_w_grad.parameters()]
+        # save initial weights
+        self.initialization = self.learner_w_grad.state_dict()     
         self.learner_wo_grad = copy.deepcopy(self.learner_w_grad)
         self.metalearner = MetaLearner(input_size=4, hidden_size=20, n_learner_params=get_flat_params(self.learner_w_grad).size(0)).to(self.dev)
         self.metalearner.metalstm.init_cI(get_flat_params(self.learner_w_grad))
-        self.metalearner_initialization = [p.clone().detach().to(self.dev) for p in
-                                             self.metalearner.parameters()]
 
-        # initialization tiene que ser sobre los parámetros del learner o del metalearner¿?
-        for p in self.initialization:
-            p.requires_grad = True
-        for p in self.metalearner_initialization:
-            p.requires_grad = True
+        self.val_metalearner = MetaLearner(input_size=4, hidden_size=20, n_learner_params=get_flat_params(self.learner_w_grad).size(0)).to(self.dev)
+        self.val_metalearner.metalstm.init_cI(get_flat_params(self.val_learner))
 
         if self.opt_fn == "sgd":
             self.optimizer = torch.optim.SGD(
@@ -57,7 +52,7 @@ class MetaLSTM(Learner):
         x_proc2 = indicator * torch.sign(x) + (1 - indicator) * np.exp(p) * x
         return torch.stack((x_proc1, x_proc2), 1)
 
-    def _train_learner(self, learner_w_grad, metalearner, T, train_x, train_y, fast_weights, task_type):
+    def _train_learner(self, learner_w_grad, metalearner, T, train_x, train_y, task_type, evaluation=False):
         loss_history = list()
         cI = metalearner.metalstm.cI.data
         hs = [None]
@@ -65,7 +60,8 @@ class MetaLSTM(Learner):
             xinp, yinp = train_x, train_y
             self._copy_flat_params_learner(learner_w_grad, cI)
             loss, grads = get_loss_and_grads(learner_w_grad, xinp, yinp,
-                                             weights=fast_weights, flat=False, task_type=task_type, item_loss=False)
+                                             weights=None, flat=False, task_type=task_type, item_loss=False,
+                                             allow_unused_grad=True)
             loss_history.append(loss)
 
             # preprocess grad & loss and metalearner forward
@@ -74,19 +70,25 @@ class MetaLSTM(Learner):
             grad_prep = self._preprocess_grad_loss(grads_flat)  # [n_learner_params, 2]
             loss_prep = self._preprocess_grad_loss(loss.data.unsqueeze(0)) # [1, 2]
             metalearner_input = [loss_prep, grad_prep, grads_flat.unsqueeze(1)]
-            cI, h = metalearner(metalearner_input, hs[-1])
+
+            if evaluation:
+                with torch.no_grad():
+                    cI, h = metalearner(metalearner_input, hs[-1])
+            else:
+                cI, h = metalearner(metalearner_input, hs[-1])
             hs.append(h)
 
         return loss_history, cI
 
-    def _deploy(self, learner, metalearner, train_x, train_y, test_x, test_y, T, fast_weights, task_type):
+    def _deploy(self, learner, metalearner, train_x, train_y, test_x, test_y, T, task_type, evaluation=False):
         # Train learner using meta-learner as optimizator
-        loss_history, cI = self._train_learner(learner, metalearner, T, train_x, train_y, fast_weights, task_type)
+        loss_history, cI = self._train_learner(learner, metalearner, T, train_x, train_y, task_type, evaluation=evaluation)
 
         # Train meta-learner with validation loss
         xinp, yinp = test_x, test_y
         self.learner_wo_grad.transfer_params(learner, cI)
-        out = learner.forward_weights(xinp, fast_weights, task_type=task_type)
+        out = self.learner_wo_grad(xinp, task_type=task_type)
+        # out = learner.forward_weights(xinp, fast_weights, task_type=task_type)
         if task_type.startswith('regression'):
             test_loss = regression_loss(out, yinp, task_type, mode='train')
         else:
@@ -112,39 +114,21 @@ class MetaLSTM(Learner):
         self.learner_wo_grad.reset_batch_stats()
         self.learner_w_grad.train()
         self.learner_wo_grad.train()
+        self.metalearner.train()
 
         train_x, train_y, test_x, test_y = put_on_device(self.dev, [train_x,
                                                                     train_y, test_x, test_y])
-        
-        fast_weights = [p.clone() for p in self.initialization]
-        # Get the weights only used for the given task
-        if task_type == "classification":
-            filtered_fast_weights = fast_weights[:-16]
-        elif task_type == "segmentation":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-16:-14]
-        elif task_type == "regression_pose_animals":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-14:-12]
-        elif task_type == 'regression_pose_animals_syn':
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-12:-10]
-        elif task_type == "regression_mpii":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-10:-8]
-        elif task_type == "regression_distractor":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-8:-6]
-        elif task_type == "regression_pascal1d":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-6:-4]
-        elif task_type == "regression_shapenet1d":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-4:-2]
-        elif task_type == "regression_shapenet2d":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-2:]
 
         score, test_loss, _, probs, preds = self._deploy(self.learner_w_grad, self.metalearner,
-                                                         train_x, train_y, test_x, test_y, self.T, filtered_fast_weights, task_type)
+                                                            train_x, train_y, test_x, test_y, self.T, task_type=task_type)
         
         self.optimizer.zero_grad()
         test_loss.backward()
         if self.grad_clip is not None:
             torch.nn.utils.clip_grad_norm_(self.metalearner.parameters(), self.grad_clip)
         self.optimizer.step()
+
+        self.initialization = self.learner_w_grad.state_dict()
 
         return score, test_loss.item(), probs, preds
     
@@ -161,38 +145,16 @@ class MetaLSTM(Learner):
         else:
             self.val_learner.load_params(self.learner_w_grad.state_dict())
             self.val_learner.eval()
-            self.val_learner.modify_out_layer(num_classes)
+            if task_type != "classification":
+                self.val_learner.modify_out_layer(self.val_learner.model.out.out_features)
+            else:
+                self.val_learner.modify_out_layer(num_classes)
 
-            fast_weights = [p.clone() for p in self.initialization[:-18]]
-
-            initialization = [p.clone().detach().to(self.dev) for p in 
-                              self.val_learner.parameters()]
-            
-            fast_weights.extend(initialization[-18:])
-            for p in fast_weights[-18:]:
-                p.requires_grad = True
-            metalearner = self.metalearner
-            metalearner.metalstm.init_cI(get_flat_params(self.val_learner))
+            self.val_metalearner.load_state_dict(self.metalearner.state_dict())
+            self.val_metalearner.metalstm.init_cI(get_flat_params(self.val_learner))
+            metalearner = self.val_metalearner
             learner = self.val_learner
-
-        if task_type == "classification":
-            filtered_fast_weights = fast_weights[:-16]
-        elif task_type == "segmentation":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-16:-14]
-        elif task_type == "regression_pose_animals":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-14:-12]
-        elif task_type == 'regression_pose_animals_syn':
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-12:-10]
-        elif task_type == "regression_mpii":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-10:-8]
-        elif task_type == "regression_distractor":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-8:-6]
-        elif task_type == "regression_pascal1d":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-6:-4]
-        elif task_type == "regression_shapenet1d":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-4:-2]
-        elif task_type == "regression_shapenet2d":
-            filtered_fast_weights = fast_weights[:-18] + fast_weights[-2:]
+            metalearner.eval()
 
         train_x, train_y, test_x, test_y = put_on_device(self.dev,
                                                          [train_x, train_y, test_x, test_y])
@@ -202,19 +164,14 @@ class MetaLSTM(Learner):
             T = self.T_test
 
         score, _, loss_history, probs, preds = self._deploy(learner, metalearner,
-                                                            train_x, train_y, test_x, test_y, T, filtered_fast_weights, task_type=task_type)
-        # score, _, loss_history, probs, preds = self._deploy(learner, metalearner,
-        #                                                     train_x, train_y, test_x, test_y, T, fast_weights, task_type=task_type)
+                                                                train_x, train_y, test_x, test_y, T, task_type=task_type,
+                                                                evaluation=True)
         
-        return score, loss_history, probs, preds            
-    
-    def dump_state(self):
-        return [p.clone().detach() for p in self.initialization], [p.clone().detach() for p in self.metalearner_initialization]
+        return score, loss_history, probs, preds
 
-    def load_state(self, state, metalearner_state):
-        self.initialization = [p.clone() for p in state]
-        for p in self.initialization:
-            p.requires_grad = True            
-        self.metalearner_initialization = [p.clone() for p in metalearner_state]
-        for p in self.metalearner_initialization:
-            p.requires_grad = True
+    def dump_state(self):
+        return {k: v.clone() for k, v in self.metalearner.state_dict().items()}
+
+    def load_state(self, state):
+        self.metalearner.eval()
+        self.metalearner.load_state_dict(state)
