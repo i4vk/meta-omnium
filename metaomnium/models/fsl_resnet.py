@@ -608,7 +608,7 @@ class ResNet(nn.Module):
         self.load_state_dict(learner_w_grad.state_dict(), strict=False)
         #  replace nn.Parameters with tensors from cI (NOT nn.Parameters anymore).
         idx = 0
-        for m in self.model.modules():
+        for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.Linear):
                 wlen = m._parameters['weight'].view(-1).size(0)
                 m._parameters['weight'] = cI[idx: idx+wlen].view_as(m._parameters['weight']).clone()
@@ -617,5 +617,5 @@ class ResNet(nn.Module):
                     blen = m._parameters['bias'].view(-1).size(0)
                     m._parameters['bias'] = cI[idx: idx+blen].view_as(m._parameters['bias']).clone()
                     idx += blen
-            else:
-                print(m)
+
+        assert(idx == cI.size(0))

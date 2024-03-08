@@ -106,6 +106,5 @@ METALSTM_CONF = {
     "T": 1, 
     "lr": 0.001,
     "momentum": 0.9,
-    "meta_lr": 0.01,
     "meta_batch_size": 1
 }

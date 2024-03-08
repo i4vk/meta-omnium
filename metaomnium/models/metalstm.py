@@ -7,11 +7,19 @@ import torch.nn.functional as F
 from .learner import Learner
 from .modules.utils import accuracy, get_loss_and_grads, miou, put_on_device,degree_loss, dist_acc, regression_loss, get_flat_params
 from .modules.metalearner import MetaLearner
+
+
+def compare_models(model1, model2):
+    for p1, p2 in zip(model1.parameters(), model2.parameters()):
+        if not torch.equal(p1, p2):
+            return False
+    return True
+
+
 class MetaLSTM(Learner):
 
-    def __init__(self, meta_lr, meta_batch_size=1, grad_clip=None, **kwargs):
+    def __init__(self, meta_batch_size=1, grad_clip=None, **kwargs):
         super().__init__(**kwargs)
-        self.meta_lr = meta_lr
         self.meta_batch_size = meta_batch_size
         self.grad_clip = grad_clip
 
@@ -29,11 +37,18 @@ class MetaLSTM(Learner):
         self.val_metalearner = MetaLearner(input_size=4, hidden_size=20, n_learner_params=get_flat_params(self.learner_w_grad).size(0)).to(self.dev)
         self.val_metalearner.metalstm.init_cI(get_flat_params(self.val_learner))
 
+        self.initialization = copy.deepcopy(self.learner_w_grad)
+
+        self.metalearner_init = self.metalearner.state_dict()
+        self.val_metalearner_init = self.val_metalearner.state_dict()
+
+        self.orig_cI = self.metalearner.metalstm.cI.data.clone()
+
         if self.opt_fn == "sgd":
             self.optimizer = torch.optim.SGD(
-                self.metalearner.parameters(), lr=self.meta_lr, momentum=self.momentum)
+                self.metalearner.parameters(), lr=self.lr, momentum=self.momentum)
         else:
-            self.optimizer = torch.optim.Adam(self.metalearner.parameters(), lr=self.meta_lr)
+            self.optimizer = torch.optim.Adam(self.metalearner.parameters(), lr=self.lr)
 
     def _copy_flat_params_learner(self, model, cI):
         idx = 0
@@ -62,7 +77,7 @@ class MetaLSTM(Learner):
             loss, grads = get_loss_and_grads(learner_w_grad, xinp, yinp,
                                              weights=None, flat=False, task_type=task_type, item_loss=False,
                                              allow_unused_grad=True)
-            loss_history.append(loss)
+            loss_history.append(loss.item())
 
             # preprocess grad & loss and metalearner forward
             # flatten grads
@@ -80,19 +95,19 @@ class MetaLSTM(Learner):
 
         return loss_history, cI
 
-    def _deploy(self, learner, metalearner, train_x, train_y, test_x, test_y, T, task_type, evaluation=False):
+    def _deploy(self, learner_w_grad, metalearner, train_x, train_y, test_x, test_y, T, task_type, evaluation=False):
         # Train learner using meta-learner as optimizator
-        loss_history, cI = self._train_learner(learner, metalearner, T, train_x, train_y, task_type, evaluation=evaluation)
+        loss_history, cI = self._train_learner(learner_w_grad, metalearner, T, train_x, train_y, task_type, evaluation=evaluation)
 
         # Train meta-learner with validation loss
         xinp, yinp = test_x, test_y
-        self.learner_wo_grad.transfer_params(learner, cI)
+        self.learner_wo_grad.transfer_params(learner_w_grad, cI)
         out = self.learner_wo_grad(xinp, task_type=task_type)
         # out = learner.forward_weights(xinp, fast_weights, task_type=task_type)
         if task_type.startswith('regression'):
             test_loss = regression_loss(out, yinp, task_type, mode='train')
         else:
-            test_loss = learner.criterion(out, yinp)
+            test_loss = self.learner_wo_grad.criterion(out, yinp)
         loss_history.append(test_loss.item())
         with torch.no_grad():
             probs = F.softmax(out, dim=1)
@@ -106,8 +121,6 @@ class MetaLSTM(Learner):
         
         return score, test_loss, loss_history, probs.cpu().numpy(), \
             preds.cpu().numpy()
-
-
 
     def train(self, train_x, train_y, test_x, test_y, task_type):
         self.learner_w_grad.reset_batch_stats()
@@ -128,7 +141,7 @@ class MetaLSTM(Learner):
             torch.nn.utils.clip_grad_norm_(self.metalearner.parameters(), self.grad_clip)
         self.optimizer.step()
 
-        self.initialization = self.learner_w_grad.state_dict()
+        # self.learner_w_grad.load_state_dict(self.learner_wo_grad.state_dict())
 
         return score, test_loss.item(), probs, preds
     
@@ -137,14 +150,14 @@ class MetaLSTM(Learner):
         if num_classes is None:
             self.learner_w_grad.reset_batch_stats()
             self.learner_wo_grad.reset_batch_stats()
-            self.learner_w_grad.eval()
-            self.learner_wo_grad.eval()
-            fast_weights = [p.clone() for p in self.initialization]
+            learner = self.learner_w_grad
             metalearner = self.metalearner
             metalearner.metalstm.init_cI(get_flat_params(self.learner_w_grad))
         else:
+            self.learner_w_grad.reset_batch_stats()
+            self.learner_wo_grad.reset_batch_stats()
             self.val_learner.load_params(self.learner_w_grad.state_dict())
-            self.val_learner.eval()
+            self.val_learner.eval()            
             if task_type != "classification":
                 self.val_learner.modify_out_layer(self.val_learner.model.out.out_features)
             else:
@@ -155,6 +168,9 @@ class MetaLSTM(Learner):
             metalearner = self.val_metalearner
             learner = self.val_learner
             metalearner.eval()
+
+        self.learner_wo_grad.eval()
+        learner.train()
 
         train_x, train_y, test_x, test_y = put_on_device(self.dev,
                                                          [train_x, train_y, test_x, test_y])

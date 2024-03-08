@@ -525,6 +525,10 @@ class CrossTaskFewShotLearningExperiment:
                 + "validation)"
             )
 
+        # If using MetaLSTM, preform gradient clipping with -5, +5.
+        if self.args.model == "metalstm":
+            self.conf["grad_clip"] = 5
+
         # If using multi-step maml, perform gradient clipping with -5, +5
         if "T" in self.conf:
             if self.conf["T"] > 1 and (

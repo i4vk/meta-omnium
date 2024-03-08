@@ -35,6 +35,7 @@ from metaomnium.models.meta_curvature import MetaCurvature
 from metaomnium.models.protonet import PrototypicalNetwork
 from metaomnium.models.ddrr import DDRR
 from metaomnium.models.train_from_scratch import TrainFromScratch
+from metaomnium.models.metalstm import MetaLSTM
 
 from utils.configs import (
     FT_CONF,
@@ -46,6 +47,7 @@ from utils.configs import (
     PROTO_CONF,
     DDRR_CONF,
     TFS_CONF,
+    METALSTM_CONF,
 )
 from utils.utils import *
 
@@ -55,6 +57,14 @@ from utils.utils import *
 # -----------------------
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--storage",
+        type=str,
+        required=False,
+        help="file where the study object will be stored",
+        default=None
+    )
 
     # Required arguments
     parser.add_argument(
@@ -92,6 +102,7 @@ def parse_arguments() -> argparse.Namespace:
             "protonet",
             "matchingnet",
             "ddrr",
+            "metalstm",
         ],
         required=True,
         help="which model to use",
@@ -410,6 +421,10 @@ class CrossTaskFewShotLearningExperiment:
             DDRR_CONF["opt_fn"] = selected_configuration["opt_fn"]
             DDRR_CONF["momentum"] = selected_configuration["momentum"]
             DDRR_CONF["init_lambda"] = selected_configuration["init_lambda"]
+        elif self.args.model == "metalstm":
+            METALSTM_CONF["opt_fn"] = selected_configuration["opt_fn"]
+            METALSTM_CONF["momentum"] = selected_configuration["momentum"]
+            METALSTM_CONF["lr"] = selected_configuration["lr"]
 
         # Define paths
         self.curr_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -453,6 +468,7 @@ class CrossTaskFewShotLearningExperiment:
             "metacurvature": (MetaCurvature, deepcopy(METACURVATURE_CONF)),
             "protonet": (PrototypicalNetwork, deepcopy(PROTO_CONF)),
             "ddrr": (DDRR, deepcopy(DDRR_CONF)),
+            "metalstm": (MetaLSTM, deepcopy(METALSTM_CONF)),
         }
 
         # Get model constructor and config for the specified algorithm
@@ -868,6 +884,12 @@ def sample_configuration(trial, model):
             "momentum": trial.suggest_categorical("momentum", [0.0, 0.9, 0.99]),
             "init_lambda": trial.suggest_float("init_lambda", 1e-2, 100.0, log=True),
         }
+    elif model == "metalstm":
+        return {
+            "lr": trial.suggest_float("lr", 1e-4, 0.1, log=True),
+            "opt_fn": trial.suggest_categorical("opt_fn", ["adam", "sgd"]),
+            "momentum": trial.suggest_categorical("momentum", [0.0, 0.9, 0.99]),
+        }
 
 
 def objective(trial, args):
@@ -891,7 +913,7 @@ def objective(trial, args):
                 processed_scores.append(9999.0)
             else:
                 processed_scores.append(scores["val_od_errors"][val_od_dataset])
-    except:
+    except Exception as e:
         print("Trial #{} failed: ".format(current_trial))
         processed_scores = [9999.0] * (
             len(args.val_id_datasets.split(",")) + len(args.val_od_datasets.split(","))
@@ -924,7 +946,11 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     objective_func = lambda trial: objective(trial, args)
     sampler = optuna.samplers.TPESampler(seed=args.seed)
-    study = optuna.create_study(directions=modes, sampler=sampler)
+    if args.storage is not None:
+        study = optuna.create_study(directions=modes, sampler=sampler, storage=f"sqlite:///{args.storage}",
+                                    load_if_exists=True, study_name=args.experiment_name)
+    else:
+        study = optuna.create_study(directions=modes, sampler=sampler)
     study.optimize(objective_func, n_trials=args.num_samples)
 
     results = study.trials
